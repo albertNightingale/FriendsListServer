@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -51,7 +50,6 @@ void dictionary_set(dictionary_t *d, const char *key, void *value) {
       return;
     }
   }
-
 
   // if key doesn't exist, add a new key to the dictionary
   if (d->count == d->alloc) {

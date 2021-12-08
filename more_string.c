@@ -220,7 +220,6 @@ void parse_query(const char *buf, dictionary_t *d) {
 }
 
 void parse_uriquery(const char *buf, dictionary_t *d) {
-
   char *s;
 
   s = strchr(buf, '?');
