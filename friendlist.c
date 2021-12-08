@@ -18,8 +18,11 @@ static void read_postquery(rio_t *rp, dictionary_t *headers, dictionary_t *d);
 static void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 static void print_stringdictionary(dictionary_t *d);
 static void serve_request(int fd, dictionary_t *query, dictionary_t *header, char *uri);
-static void handleGetFriends(char *user, char **body);
-// static void handleBeFriend(char* user, char**body)
+static void handleGetFriends(const char *user, char **body);
+static void handleBeFriend(const char *user, const char *new_friends, char **body);
+
+static void getFriends(char **friends, const char *user);
+static void appendFriend(char **friends, const char *user);
 
 static dictionary_t *friendGraph;
 
@@ -210,7 +213,7 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 	printf("serve_request: path is parsed out: %s\n", path);
 	if (starts_with("friends", path))
 	{
-		char *user = dictionary_get(query, "user");
+		const char *user = dictionary_get(query, "user");
 		printf("user parsed from the query: %s\n", user);
 		if (!user)
 		{
@@ -243,8 +246,8 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 	else if (starts_with("befriend", path))
 	{
 		// /befriend?user=‹user›&friends=‹friends›
-		char *user = dictionary_get(query, "user");			  //
-		char *new_friends = dictionary_get(query, "friends"); //
+		const char *user = dictionary_get(query, "user");			  //
+		const char *new_friends = dictionary_get(query, "friends");   //
 		if (!new_friends || !user)
 		{
 			clienterror(fd, "friends query not found or user not found", "404", "BAD", "BAD");
@@ -276,7 +279,7 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 	}
 }
 
-static void handleGetFriends(char *user, char **body)
+static void handleGetFriends(const char *user, char **body)
 {
 	char *current_friends = dictionary_get(friendGraph, user);
 	if (!current_friends)
@@ -304,19 +307,14 @@ static void handleGetFriends(char *user, char **body)
 	}
 }
 
-static void handleBeFriend(char *user, char *new_friends, char **body)
+static void handleBeFriend(const char *user, const char *new_friends, char **body)
 {
 	printf("user: %s\n", user);
 	printf("query_friends: %s\n", new_friends);
 	char **new_friends_list = split_string(new_friends, '\n'); // list of friends in the query
 
-	char *current_friends = dictionary_get(friendGraph, user); // list of existing friends of user
-	if (!current_friends)
-	{ // if user doesn't exist in the dictionary
-		// insert to the dictionary
-		current_friends = malloc(1); // set to empty string
-		dictionary_set(friendGraph, user, current_friends);
-	}
+	char *current_friends;
+	getFriends(&current_friends, user);
 
 	char **current_friends_list = split_string(current_friends, '&');
 
@@ -351,41 +349,44 @@ static void handleBeFriend(char *user, char *new_friends, char **body)
 		{ // if not duplicated
 			printf("is not duplicated \n");
 			{
-				if (strcmp(current_friends, "") != 0)
-				{
-					current_friends = append_strings(current_friends, "&", friend, NULL); // append friend to user's friends
-				}
-				else
-				{
-					current_friends = append_strings(current_friends, friend, NULL); // append friend to user's friends
-				}
+				appendFriend(&current_friends, friend); // add friend to user's friend
 
-				printf("current friends: %s\n", current_friends);
+				printf("current friends after adding: %s\n", current_friends);
 				dictionary_set(friendGraph, user, current_friends);
-				// printf("get user friends after set: %s\n", dictionary_get(friendGraph, user));
 			}
 			{
 				// update the user's friend's friend to be user
 				// NOTE: no need to check if friend's friends contains user
-				char *friends_friends = dictionary_get(friendGraph, friend); // list of existing friends of user
-				if (!friends_friends)
-				{ // if doesn't exist in the dictionary
-					// insert to the dictionary
-					friends_friends = ""; // set to empty string
-					dictionary_set(friendGraph, friend, "");
-				}
+				char *friends_friends; // list of existing friends of user
 
-				if (strcmp(friends_friends, "") != 0)
-				{
-					friends_friends = append_strings(friends_friends, "&", user, NULL); // append user to friend's friends
-				}
-				else
-				{
-					friends_friends = append_strings(friends_friends, user, NULL); // append user to friend's friends
-				}
-				dictionary_set(friendGraph, user, strdup(friends_friends)); // update user entry of the dictionary with a copy of friends_friends
+				getFriends(&friends_friends, friend); // get friends
+				appendFriend(&friends_friends, user); // add user to friend's friends
+				dictionary_set(friendGraph, friend, friends_friends); // update user entry of the dictionary with a copy of friends_friends
 			}
 		}
+	}
+}
+
+void getFriends(char **friends, const char *user)
+{
+	*friends = dictionary_get(friendGraph, user);
+	if (!*friends)
+	{ // if doesn't exist in the dictionary
+		// insert to the dictionary
+		*friends = malloc(1); // set to empty string
+		dictionary_set(friendGraph, user, *friends);
+	}
+}
+
+void appendFriend(char **friends, const char *new_friend)
+{
+	if (strcmp(*friends, "") != 0)
+	{
+		*friends = append_strings(*friends, "&", new_friend, NULL); // append user to friend's friends
+	}
+	else
+	{
+		*friends = append_strings(*friends, new_friend, NULL); // append user to friend's friends
 	}
 }
 
