@@ -63,7 +63,7 @@ int main(int argc, char **argv)
 		{
 			Getnameinfo((SA *)&clientaddr, clientlen, hostname, MAXLINE,
 						port, MAXLINE, 0);
-			printf("Accepted connection from (%s, %s)\n", hostname, port);
+			// printf("Accepted connection from (%s, %s)\n", hostname, port);
 			doit(connfd);
 			Close(connfd);
 		}
@@ -83,7 +83,6 @@ void doit(int fd)
 	Rio_readinitb(&rio, fd);
 	if (Rio_readlineb(&rio, buf, MAXLINE) <= 0)
 		return;
-	printf("******* start of handling this request ******** \n");
 
 	unsigned char parseSuccessful = parse_request_line(buf, &method, &uri, &version); // split buffer to method, uri, and version
 	if (!parseSuccessful)
@@ -111,24 +110,22 @@ void doit(int fd)
 			parse_uriquery(uri, query); // some queries will be in the URI
 
 			if (isPost)
-			{ // for POST method, some queries will be in the body
+			{   // for POST method, some queries will be in the body
 				read_postquery(&rio, headers, query);
 			}
 
+			printf("******* START of handling this request ******** \n");
+			printf("Request URI: %s\n", uri);
 			if (query)
 			{
-				/* For debugging, print the dictionary */
-				// print_stringdictionary(headers);
-				// print_stringdictionary(query);
 				serve_request(fd, query, headers, uri);
-				printf("current friends graph size: %zu\n", dictionary_count(friendGraph));
-				printf("******* end of handling this request ******** \n\n\n");
+				printf("current friends graph size after serving this request: %zu\n", dictionary_count(friendGraph));
 			}
 			else
 			{
-				printf("******* no query with this HTTP request ******** \n");
-				printf("******* end of handling this request ******** \n\n\n");
+				printf("******* terminate because no query with this HTTP request ******** \n");
 			}
+			printf("******* END of handling this request ******** \n\n\n");
 
 			/* Clean up */
 			free_dictionary(query);
@@ -252,8 +249,14 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 		handleRemoveFriends(user, friends_to_remove, &body);
 		respondOkayRequest(fd, body);
 	}
-	else if (starts_with("introduce", path))
+	else if (starts_with("introduce", path)) 
 	{
+		// sends HTTP friends request for <friend> to the server with <host> and <port>
+		// /introduce?user=‹user›&friend=‹friend›&host=‹host›&port=‹port›
+		char *user = dictionary_get(query, "user");
+		char *friend = dictionary_get(query, "friend");
+		char *host = dictionary_get(query, "host");
+		char *port = dictionary_get(query, "port");
 	}
 	else
 	{
