@@ -21,7 +21,9 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 static void handleGetFriends(const char *user, char **body);
 static void handleBeFriends(const char *user, const char *new_friends, char **body);
 static void handleRemoveFriends(const char *user, const char *friends_to_remove, char **body);
+static void handleIntroduce(const char *user, const char *friend, char *host, char*port, char **body);
 
+static void addFriendsToUser(char **new_friends_list, const char *user);
 static void respondOkayRequest(const int fd, char *body);
 static void addFriendsToBody(const char *user, char **body);
 static void getFriends(char **friends, const char *user);
@@ -148,11 +150,11 @@ dictionary_t *read_requesthdrs(rio_t *rp)
 	dictionary_t *d = make_dictionary(COMPARE_CASE_INSENS, free);
 
 	Rio_readlineb(rp, buf, MAXLINE);
-	printf("%s", buf);
+	// printf("%s", buf);
 	while (strcmp(buf, "\r\n"))
 	{
 		Rio_readlineb(rp, buf, MAXLINE);
-		printf("%s", buf);
+		// printf("%s", buf);
 		parse_header_line(buf, d);
 	}
 
@@ -203,10 +205,9 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 {
 	char *path = split_string(uri, '/')[1];
 	printf("serve_request: path is parsed out: %s\n", path);
-	if (starts_with("friends", path))
+	if (starts_with("friends", path)) 
 	{
 		const char *user = dictionary_get(query, "user");
-		printf("user parsed from the query: %s\n", user);
 		if (!user)
 		{
 			clienterror(fd, "user query not found for friends", "404", "BAD", "BAD");
@@ -215,7 +216,6 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 
 		char *body = calloc(1, 1);
 		handleGetFriends(user, &body);
-
 		respondOkayRequest(fd, body);
 	}
 	else if (starts_with("befriend", path))
@@ -231,7 +231,6 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 		// sending message to client
 		char *body = calloc(1, 1);
 		handleBeFriends(user, new_friends, &body);
-
 		respondOkayRequest(fd, body);
 	}
 	else if (starts_with("unfriend", path))
@@ -257,11 +256,78 @@ static void serve_request(int fd, dictionary_t *query, dictionary_t *header, cha
 		char *friend = dictionary_get(query, "friend");
 		char *host = dictionary_get(query, "host");
 		char *port = dictionary_get(query, "port");
+		if (!friend || !user || !host || !port)
+		{
+			clienterror(fd, "the query is invalid, check it again", "404", "BAD", "BAD");
+			return;
+		}
+		char *body = malloc(1);
+		handleIntroduce(user, friend, host, port, &body);
 	}
 	else
 	{
 		printf("path is not valid %s \n", path);
 	}
+}
+
+static void handleIntroduce(const char *user, const char *friend, char *host, char *port, char **body) {
+	int s = Open_clientfd(host, port);
+	const char *CRLF = "%0D%0A";
+
+	// heading line
+	char *httpMessage = append_strings("GET ", "/friends?", "user=", friend, " HTTP/1.0", "\r\n", NULL);
+	// header 
+	char *header = append_strings(
+							"Server: Friendlist Web Server\r\n",
+							"Connection: close\r\n",
+							"Content-length: ", to_string(0), "\r\n",
+							"Content-type: ", "text/html; charset=utf-8", "\r\n\r\n",
+							NULL);
+	
+	printf("******* sending HTTP request to get friends of %s *******\n", friend);
+	printf("handleIntroduce::request_httpMessage: %s\n", httpMessage);
+	printf("handleIntroduce::request_header: %s\n", header);
+	httpMessage = append_strings(httpMessage, header, NULL);
+	Rio_writen(s, httpMessage, strlen(httpMessage));
+
+	char *response = malloc(1);
+	char buf[MAXLINE];
+	rio_t rio; // 
+	Rio_readinitb(&rio, s);
+	if (Rio_readlineb(&rio, buf, MAXLINE) <= 0) {
+		printf("handleIntroduce::No actual response\n");
+	}
+	else {
+		if (starts_with(buf, "HTTP/1.0 200 OK") == 0) {
+			dictionary_t *resHeaders = read_requesthdrs(&rio);
+			print_stringdictionary(resHeaders);
+			
+			while (strcmp(buf, "\r\n") != 0) {
+				Rio_readlineb(&rio, buf, MAXLINE);
+				// printf("buffer: %s\n", buf);
+				response = append_strings(response, buf, NULL);
+			}
+		}
+		else {
+			printf("handleIntroduce::response header is not 200 okay: %s\n", buf);
+		}
+	}
+	
+	Close(s);
+	printf("handleIntroduce::response body from server: %s\n", response);
+	printf("introduce %s's friends to %s\n", friend, user);
+
+	char **friends_list = split_string(response, '\n');
+	char **friend_list = split_string(friend, '-');
+	for (int i = 0; friends_list[i] != NULL; i++) {
+		if (strcmp(friends_list[i], "\r") == 0) {
+			free(friends_list[i]);
+			friends_list[i] = NULL;
+		}
+	}
+	
+	addFriendsToUser(friend_list, user); 
+	addFriendsToUser(friends_list, user);
 }
 
 static void handleGetFriends(const char *user, char **body)
@@ -320,7 +386,7 @@ static void handleRemoveFriends(const char *user, const char *friends_to_remove,
 					char *updated_friends_friends = malloc(1);  // updated friends of friends
 					// construct a new string of friends
 					for (int i = 0; friends_friends_list[i] != NULL; i++) { 
-						updated_friends_friends = append_strings(updated_friends_friends, friends_friends_list[i], NULL);
+						updated_friends_friends = append_strings(updated_friends_friends, friends_friends_list[i], "&", NULL);
 					} 
 					dictionary_set(friendGraph, friend, updated_friends_friends); // updated friends friends should not contain the user
 					break;
@@ -347,67 +413,7 @@ static void handleBeFriends(const char *user, const char *new_friends, char **bo
 		printf("query list index %u name: %s\n", i, new_friends_list[i]);
 	}
 
-	char *current_friends;
-	getFriends(&current_friends, user);
-
-	char **current_friends_list = split_string(current_friends, '&');
-
-	// iterate through all query_friends_list, check for duplicate in friends, if not duplicate, then add
-	for (int i = 0; new_friends_list[i] != NULL; i++)
-	{
-		char *friend = new_friends_list[i];
-		if (strcmp(friend, user) == 0) { // cannot be friend with yourself
-			continue;
-		}
-
-		unsigned char isDupl = 0;
-		// check query_friends_list previous index from 0 to i contains the same value
-		for (int j = 0; j < i; j++)
-		{
-			if (strcmp(friend, new_friends_list[j]) == 0)
-			{
-				printf("all_friends_list: index i=%u and index j=%u are the duplicates\n", i, j);
-				isDupl = 1;
-				break;
-			}
-		}
-
-		// check if friends_list contains duplicates
-		for (int j = 0; current_friends_list[j] != NULL; j++)
-		{
-			if (strcmp(friend, current_friends_list[j]) == 0)
-			{
-				printf("current_friends_list: index i=%u and index j=%u are the duplicates\n", i, j);
-				isDupl = 1;
-				break;
-			}
-		}
-
-		if (!isDupl)
-		{ // if not duplicated
-			{
-				appendFriend(&current_friends, friend); // add friend to user's friend
-				dictionary_set(friendGraph, user, current_friends); // insert into dictionary
-
-				printf("adding %s to %s's friends\n", friend, user);
-				printf("current friends of %s after adding: %s\n\n", user, current_friends);
-			}
-			{
-				// update the user's friend's friend to be user
-				// NOTE: no need to check if friend's friends contains user
-				char *friends_friends; // list of existing friends of user
-				getFriends(&friends_friends, friend); // get friends
-				appendFriend(&friends_friends, user); // add user to friend's friends
-				dictionary_set(friendGraph, friend, friends_friends); // update user entry of the dictionary with a copy of friends_friends
-
-				printf("adding %s to %s's friends\n", user, friend);
-				printf("current friends of %s after adding: %s\n\n", friend, friends_friends);
-			}
-		}
-		else {
-			printf("friend %s is already friend with user %s\n", friend, user);
-		}
-	}
+	addFriendsToUser(new_friends_list, user);
 	addFriendsToBody(user, body);
 }
 
@@ -438,7 +444,74 @@ static void addFriendsToBody(const char *user, char **body) {
 	getFriends(&updatedFriends, user);
 	char ** splitUpdatedFriends = split_string(updatedFriends, '&');
 	for (int i = 0; splitUpdatedFriends[i] != NULL; i++) {
-		*body = append_strings(*body, splitUpdatedFriends[i], "\n", NULL);
+		if (splitUpdatedFriends[i+1] == NULL) {
+			*body = append_strings(*body, splitUpdatedFriends[i], "\n", NULL);
+		}
+		else {
+			*body = append_strings(*body, splitUpdatedFriends[i], "\n", NULL);
+		}
+	}
+	*body = append_strings(*body, "\r\n", NULL);
+}
+
+static void addFriendsToUser(char **new_friends_list, const char *user) {
+	
+	char *currentFriends = NULL;
+	getFriends(&currentFriends, user);
+	char ** currentFriendsList = split_string(currentFriends, '&');
+	for (int i = 0; new_friends_list[i] != NULL; i++) {
+		char *friend = new_friends_list[i];
+		if (strcmp(friend, user) == 0) { // cannot be friend with yourself
+			continue;
+		}
+
+		unsigned char isDupl = 0;
+		// check query_friends_list previous index from 0 to i contains the same value
+		for (int j = 0; j < i; j++)
+		{
+			if (strcmp(friend, new_friends_list[j]) == 0)
+			{
+				printf("new_friends_list: index i=%u and index j=%u are the duplicates\n", i, j);
+				isDupl = 1;
+				break;
+			}
+		}
+
+		// check if friends_list contains duplicates
+		for (int j = 0; currentFriendsList[j] != NULL; j++)
+		{
+			if (strcmp(friend, currentFriendsList[j]) == 0)
+			{
+				printf("current_friends_list: index i=%u and index j=%u are the duplicates\n", i, j);
+				isDupl = 1;
+				break;
+			}
+		}
+
+		if (!isDupl)
+		{ // if not duplicated
+			{
+				appendFriend(&currentFriends, friend); // add friend to user's friend
+				dictionary_set(friendGraph, user, currentFriends); // insert into dictionary
+
+				printf("adding %s to %s's friends\n", friend, user);
+				printf("current friends of %s after adding: %s\n\n", user, currentFriends);
+			}
+			{
+				// update the user's friend's friend to be user
+				// NOTE: no need to check if friend's friends contains user
+				char *friends_friends; // list of existing friends of user
+				getFriends(&friends_friends, friend); // get friends
+				appendFriend(&friends_friends, user); // add user to friend's friends
+				dictionary_set(friendGraph, friend, friends_friends); // update user entry of the dictionary with a copy of friends_friends
+
+				printf("adding %s to %s's friends\n", user, friend);
+				printf("current friends of %s after adding: %s\n\n", friend, friends_friends);
+			}
+		}
+		else {
+			printf("friend %s is already friend with user %s\n", friend, user);
+		}
 	}
 }
 
