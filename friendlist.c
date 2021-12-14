@@ -298,7 +298,7 @@ static void handleRemoveFriends(const char *user, const char *friends_to_remove,
 		if (friend_found)
 		{   
 			// WARNING: POTENTIAL BUG HERE
-			char *updated_friend = malloc(1);
+			char *updated_friend = calloc(1, 1);
 			// construct a new string of friends
 			for (int i = 0; current_friends_list[i] != NULL; i++) { 
 				updated_friend = append_strings(updated_friend, current_friends_list[i], NULL);
@@ -314,7 +314,7 @@ static void handleRemoveFriends(const char *user, const char *friends_to_remove,
 			for (int i = 0; friends_friends_list[i] != NULL; i++) { 
 				if (strcmp(friends_friends_list[i], user) == 0) {  // found user in friend's list of friends
 					friends_friends_list[i] = ""; // change it to empty string
-					char *updated_friends_friends = malloc(1);  // updated friends of friends
+					char *updated_friends_friends = calloc(1, 1);  // updated friends of friends
 					// construct a new string of friends
 					for (int i = 0; friends_friends_list[i] != NULL; i++) { 
 						updated_friends_friends = append_strings(updated_friends_friends, friends_friends_list[i], NULL);
@@ -346,7 +346,7 @@ static void handleBeFriends(const char *user, const char *new_friends, char **bo
 
 	char *current_friends;
 	getFriends(&current_friends, user);
-
+	printf("current friends: %s\n", current_friends);
 	char **current_friends_list = split_string(current_friends, '&');
 
 	// iterate through all query_friends_list, check for duplicate in friends, if not duplicate, then add
@@ -433,8 +433,10 @@ static void addFriendsToBody(const char *user, char **body) {
 	// add updated friends to body
 	char *updatedFriends = NULL;
 	getFriends(&updatedFriends, user);
+	// printf("friends: %s\n", updatedFriends);
 	char ** splitUpdatedFriends = split_string(updatedFriends, '&');
 	for (int i = 0; splitUpdatedFriends[i] != NULL; i++) {
+		// printf("add to body: %s\n", splitUpdatedFriends[i]);
 		*body = append_strings(*body, splitUpdatedFriends[i], "\n", NULL);
 	}
 }
@@ -445,7 +447,7 @@ void getFriends(char **friends, const char *user)
 	if (!*friends)
 	{ // if doesn't exist in the dictionary
 		// insert to the dictionary
-		*friends = malloc(1); // set to empty string
+		*friends = calloc(1, 1); // set to empty string
 		dictionary_set(friendGraph, user, *friends);
 	}
 }
